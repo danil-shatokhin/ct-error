@@ -27,11 +27,11 @@ func main() {
 
 	dbname := "projects/" + cfg.Project + "/instances/" + cfg.Instance + "/databases/" + cfg.Database
 	c, _ := spanner.NewClient(ctx, dbname)
+	id := uuid.New().String()
+	ti := time.Date(1970, 1, 1, 1, 1, 1, 1, time.UTC)
 
-	_, dbErr := c.ReadWriteTransaction(ctx, func(ctx context.Context, readWriteTxn *spanner.ReadWriteTransaction) error {
+	_, dbErr1 := c.ReadWriteTransaction(ctx, func(ctx context.Context, readWriteTxn *spanner.ReadWriteTransaction) error {
 		//insert
-		id := uuid.New().String()
-		ti := time.Date(1970, 1, 1, 1, 1, 1, 1, time.UTC)
 		testItem := &Test{
 			ID:             id,
 			InstanceName:   "instance-name",
@@ -56,6 +56,15 @@ func main() {
 			return err
 		}
 
+		return nil
+	})
+
+	if dbErr1 != nil {
+		fmt.Printf("failed to insert: %s", dbErr1)
+		return
+	}
+
+	_, dbErr2 := c.ReadWriteTransaction(ctx, func(ctx context.Context, readWriteTxn *spanner.ReadWriteTransaction) error {
 		//get to confirm
 		getStmt := spanner.Statement{
 			SQL: "SELECT * FROM machines WHERE id = @ID",
@@ -94,7 +103,7 @@ func main() {
 			SQL:    query,
 			Params: args,
 		}
-		fmt.Println(query, args)
+		//fmt.Println(query, args)
 		updatedCount, updateErr := readWriteTxn.Update(ctx, updateStmt)
 		if updatedCount == 0 {
 			fmt.Println("no rows updated")
@@ -108,8 +117,8 @@ func main() {
 		return nil
 	})
 
-	if dbErr != nil {
-		fmt.Println("!ok: ", dbErr)
+	if dbErr2 != nil {
+		fmt.Println("!ok: ", dbErr2)
 	} else {
 		fmt.Println("ok")
 	}
