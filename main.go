@@ -79,7 +79,7 @@ func main() {
 			return fmt.Errorf("Could not parse row into machine struct: %w", err)
 		}
 
-		fmt.Printf("get machine:\n%+v", m)
+		fmt.Printf("get machine:\n%+v\n", m)
 
 		//update
 		args := map[string]interface{}{
@@ -96,11 +96,9 @@ func main() {
 		//fmt.Println(query, args)
 		updatedCount, updateErr := readWriteTxn.Update(ctx, updateStmt)
 		if updatedCount == 0 {
-			fmt.Println("no rows updated")
 			return fmt.Errorf("no rows updated")
 		}
 		if updateErr != nil {
-			fmt.Printf("error updating query = %s, args = %s: %s", query, args, updateErr)
 			return updateErr
 		}
 
