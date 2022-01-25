@@ -9,6 +9,7 @@ import (
 	"cloud.google.com/go/spanner"
 	"github.com/google/uuid"
 	"github.com/xareyx/ct-error/emulate"
+	"google.golang.org/api/iterator"
 )
 
 func main() {
@@ -45,27 +46,56 @@ func main() {
 			LastHeartbeat:  spanner.NullTime{Valid: true, Time: ti},
 			EndedOn:        spanner.NullTime{Valid: true, Time: ti},
 		}
-		mut, _ := spanner.InsertStruct("machines", testItem)
+		mut, mutErr := spanner.InsertStruct("machines", testItem)
+		if mutErr != nil {
+			return mutErr
+		}
 		err = readWriteTxn.BufferWrite([]*spanner.Mutation{mut})
 		if err != nil {
 			fmt.Printf("Failed to insert struct: %s", err)
 			return err
 		}
 
+		//get to confirm
+		getStmt := spanner.Statement{
+			SQL: "SELECT * FROM machines WHERE id = @ID",
+			Params: map[string]interface{}{
+				"ID": id,
+			},
+		}
+
+		var iter *spanner.RowIterator
+		iter = readWriteTxn.Query(ctx, getStmt)
+		defer iter.Stop()
+		row, err := iter.Next()
+		if err == iterator.Done {
+			return fmt.Errorf("Machine not found")
+		}
+		if err != nil {
+			return fmt.Errorf("error occured while getting Machine '%s': %w", id, err)
+		}
+
+		m := &Test{}
+		if err := row.ToStruct(m); err != nil {
+			return fmt.Errorf("Could not parse row into machine struct: %w", err)
+		}
+
+		fmt.Printf("get machine:\n%+v", m)
+
 		//update
 		args := map[string]interface{}{
 			"id":         id,
-			"created_on": spanner.CommitTimestamp,
-			"ended_on":   spanner.CommitTimestamp,
+			"created_on": "PENDING_COMMIT_TIMESTAMP()",
+			"ended_on":   "PENDING_COMMIT_TIMESTAMP()",
 		}
 		query := "UPDATE machines SET created_on=@created_on, ended_on=@ended_on WHERE id = @id"
 
-		stmt := spanner.Statement{
+		updateStmt := spanner.Statement{
 			SQL:    query,
 			Params: args,
 		}
 		fmt.Println(query, args)
-		updatedCount, updateErr := readWriteTxn.Update(ctx, stmt)
+		updatedCount, updateErr := readWriteTxn.Update(ctx, updateStmt)
 		if updatedCount == 0 {
 			fmt.Println("no rows updated")
 			return fmt.Errorf("no rows updated")
@@ -78,7 +108,9 @@ func main() {
 		return nil
 	})
 
-	if dbErr == nil {
+	if dbErr != nil {
+		fmt.Println("!ok: ", dbErr)
+	} else {
 		fmt.Println("ok")
 	}
 }
