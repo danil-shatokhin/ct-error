@@ -3,28 +3,19 @@ package main
 import (
 	"context"
 	"fmt"
+	"strings"
+	"time"
 
 	"cloud.google.com/go/spanner"
+	"github.com/google/uuid"
 	"github.com/xareyx/ct-error/emulate"
 )
-
-type test struct {
-	ID int64            `spanner:"id"`
-	T1 spanner.NullTime `spanner:"last_heartbeat"`
-	T2 spanner.NullTime `spanner:"ended_on"`
-}
-
-var spannerDDL = `CREATE TABLE test (
-					id INT64 NOT NULL,
-					t1 TIMESTAMP OPTIONS (allow_commit_timestamp=true),
-					t2 TIMESTAMP OPTIONS (allow_commit_timestamp=true),
-				) PRIMARY KEY (id);`
 
 func main() {
 	ctx := context.Background()
 	cfg := emulate.DefaultConfig()
 	cfg.Database = "testdb"
-	cfg.DDL = emulate.ParseDDL(spannerDDL)
+	cfg.DDL = emulate.ParseDDL(strings.Join(liveSpannerDDL[:], ";\n"))
 	spannerEmulator := emulate.New(cfg, emulate.DefaultEmulator)
 	err := spannerEmulator.Run(ctx)
 	if err != nil {
@@ -36,20 +27,25 @@ func main() {
 	dbname := "projects/" + cfg.Project + "/instances/" + cfg.Instance + "/databases/" + cfg.Database
 	c, _ := spanner.NewClient(ctx, dbname)
 
-	_, _ = c.ReadWriteTransaction(ctx, func(ctx context.Context, readWriteTxn *spanner.ReadWriteTransaction) error {
+	_, dbErr := c.ReadWriteTransaction(ctx, func(ctx context.Context, readWriteTxn *spanner.ReadWriteTransaction) error {
 		//insert
-		testItem := test{
-			ID: 0,
-			T1: spanner.NullTime{
-				Valid: true,
-				Time:  spanner.CommitTimestamp,
-			},
-			T2: spanner.NullTime{
-				Valid: true,
-				Time:  spanner.CommitTimestamp,
-			},
+		id := uuid.New().String()
+		ti := time.Date(1970, 1, 1, 1, 1, 1, 1, time.UTC)
+		testItem := &Test{
+			ID:             id,
+			InstanceName:   "instance-name",
+			InstanceIP:     "instance-ip",
+			Status:         "available",
+			Version:        "version",
+			Provisioner:    "provisioner",
+			InstanceGroup:  "instance-group",
+			Zone:           "zone",
+			CreatedOn:      spanner.NullTime{Valid: true, Time: ti},
+			FirstHeartbeat: spanner.NullTime{Valid: true, Time: ti},
+			LastHeartbeat:  spanner.NullTime{Valid: true, Time: ti},
+			EndedOn:        spanner.NullTime{Valid: true, Time: ti},
 		}
-		mut, _ := spanner.InsertStruct("test", testItem)
+		mut, _ := spanner.InsertStruct("machines", testItem)
 		err = readWriteTxn.BufferWrite([]*spanner.Mutation{mut})
 		if err != nil {
 			fmt.Printf("Failed to insert struct: %s", err)
@@ -58,17 +54,22 @@ func main() {
 
 		//update
 		args := map[string]interface{}{
-			"id": 0,
-			"t1": spanner.CommitTimestamp,
-			"t2": spanner.CommitTimestamp,
+			"id":         id,
+			"created_on": spanner.CommitTimestamp,
+			"ended_on":   spanner.CommitTimestamp,
 		}
-		query := "UPDATE test SET t1=@t1, t2=@t2 WHERE id = @id"
+		query := "UPDATE machines SET created_on=@created_on, ended_on=@ended_on WHERE id = @id"
 
 		stmt := spanner.Statement{
 			SQL:    query,
 			Params: args,
 		}
-		_, updateErr := readWriteTxn.Update(ctx, stmt)
+		fmt.Println(query, args)
+		updatedCount, updateErr := readWriteTxn.Update(ctx, stmt)
+		if updatedCount == 0 {
+			fmt.Println("no rows updated")
+			return fmt.Errorf("no rows updated")
+		}
 		if updateErr != nil {
 			fmt.Printf("error updating query = %s, args = %s: %s", query, args, updateErr)
 			return updateErr
@@ -77,5 +78,7 @@ func main() {
 		return nil
 	})
 
-	fmt.Printf("ok")
+	if dbErr == nil {
+		fmt.Println("ok")
+	}
 }
