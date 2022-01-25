@@ -81,25 +81,36 @@ func main() {
 
 		fmt.Printf("get machine:\n%+v\n", m)
 
-		//update
-		args := map[string]interface{}{
+		//update that should be working
+		badArgs := map[string]interface{}{
 			"id": id,
 			"T1": spanner.CommitTimestamp,
 			"T2": spanner.CommitTimestamp,
 		}
-		query := "UPDATE test SET t1=@T1, t1=@T2 WHERE id = @id"
+		badQuery := "UPDATE test SET t1=@T1, t2=@T2 WHERE id = @id"
 
-		updateStmt := spanner.Statement{
-			SQL:    query,
-			Params: args,
+		badStmt := spanner.Statement{
+			SQL:    badQuery,
+			Params: badArgs,
 		}
-		//fmt.Println(query, args)
-		updatedCount, updateErr := readWriteTxn.Update(ctx, updateStmt)
-		if updatedCount == 0 {
-			return fmt.Errorf("no rows updated")
+		_, _ = readWriteTxn.Update(ctx, badStmt)
+		// errors with "Invalid timestamp: 'spanner.commit_timestamp()'"
+
+		//update that works
+		goodArgs := map[string]interface{}{
+			"id": id,
 		}
+		goodQuery := "UPDATE test SET t1=PENDING_COMMIT_TIMESTAMP(), t2=PENDING_COMMIT_TIMESTAMP() WHERE id = @id"
+		goodStmt := spanner.Statement{
+			SQL:    goodQuery,
+			Params: goodArgs,
+		}
+		count, updateErr := readWriteTxn.Update(ctx, goodStmt)
 		if updateErr != nil {
 			return updateErr
+		}
+		if count == 0 {
+			return fmt.Errorf("updated 0 rows")
 		}
 
 		return nil
