@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	"cloud.google.com/go/spanner"
@@ -16,7 +15,7 @@ func main() {
 	ctx := context.Background()
 	cfg := emulate.DefaultConfig()
 	cfg.Database = "testdb"
-	cfg.DDL = emulate.ParseDDL(strings.Join(liveSpannerDDL[:], ";\n"))
+	cfg.DDL = emulate.ParseDDL(spannerDDL)
 	spannerEmulator := emulate.New(cfg, emulate.DefaultEmulator)
 	err := spannerEmulator.Run(ctx)
 	if err != nil {
@@ -33,20 +32,11 @@ func main() {
 	_, dbErr1 := c.ReadWriteTransaction(ctx, func(ctx context.Context, readWriteTxn *spanner.ReadWriteTransaction) error {
 		//insert
 		testItem := &Test{
-			ID:             id,
-			InstanceName:   "instance-name",
-			InstanceIP:     "instance-ip",
-			Status:         "available",
-			Version:        "version",
-			Provisioner:    "provisioner",
-			InstanceGroup:  "instance-group",
-			Zone:           "zone",
-			CreatedOn:      spanner.NullTime{Valid: true, Time: ti},
-			FirstHeartbeat: spanner.NullTime{Valid: true, Time: ti},
-			LastHeartbeat:  spanner.NullTime{Valid: true, Time: ti},
-			EndedOn:        spanner.NullTime{Valid: true, Time: ti},
+			ID: id,
+			T1: spanner.NullTime{Valid: true, Time: ti},
+			T2: spanner.NullTime{Valid: true, Time: ti},
 		}
-		mut, mutErr := spanner.InsertStruct("machines", testItem)
+		mut, mutErr := spanner.InsertStruct("test", testItem)
 		if mutErr != nil {
 			return mutErr
 		}
@@ -67,7 +57,7 @@ func main() {
 	_, dbErr2 := c.ReadWriteTransaction(ctx, func(ctx context.Context, readWriteTxn *spanner.ReadWriteTransaction) error {
 		//get to confirm
 		getStmt := spanner.Statement{
-			SQL: "SELECT * FROM machines WHERE id = @ID",
+			SQL: "SELECT * FROM test WHERE id = @ID",
 			Params: map[string]interface{}{
 				"ID": id,
 			},
@@ -93,11 +83,11 @@ func main() {
 
 		//update
 		args := map[string]interface{}{
-			"id":         id,
-			"created_on": "PENDING_COMMIT_TIMESTAMP()",
-			"ended_on":   "PENDING_COMMIT_TIMESTAMP()",
+			"id": id,
+			"T1": spanner.CommitTimestamp,
+			"T2": spanner.CommitTimestamp,
 		}
-		query := "UPDATE machines SET created_on=@created_on, ended_on=@ended_on WHERE id = @id"
+		query := "UPDATE test SET t1=@T1, t1=@T2 WHERE id = @id"
 
 		updateStmt := spanner.Statement{
 			SQL:    query,
